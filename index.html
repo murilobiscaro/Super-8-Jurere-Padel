@@ -527,14 +527,12 @@ function renderStandings() {
   players.sort((a, b) => {
     if (b.games !== a.games) return b.games - a.games;
     if (b.wins !== a.wins) return b.wins - a.wins;
-    // confronto direto
     const winner = getDirectResult(a.i, b.i);
     if (winner === a.i) return -1;
     if (winner === b.i) return 1;
     return 0;
   });
 
-  // determinar critério usado para cada posição
   function getCriteria(pos) {
     if (pos === 0) return null;
     const curr = players[pos];
@@ -542,7 +540,8 @@ function renderStandings() {
     if (curr.games !== prev.games) return null;
     if (curr.wins !== prev.wins) return '1° critério: partidas vencidas';
     const winner = getDirectResult(curr.i, prev.i);
-    if (winner !== null) return '2° critério: confronto direto';
+    if (winner !== null && winner !== 'tie') return '2° critério: confronto direto (soma de games)';
+    if (winner === 'tie') return '3° critério: o mais velho vence';
     return null;
   }
 
