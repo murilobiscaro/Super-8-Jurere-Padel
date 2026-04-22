@@ -334,7 +334,10 @@ let scores = {};
 let generated = false;
 
 function saveToStorage() {
-  const names = Array.from({length:8}, (_,i) => document.getElementById('p'+i)?.value || `Jogador ${i+1}`);
+  const names = Array.from({length:8}, (_,i) => {
+    const input = document.getElementById('p'+i);
+    return input?.value || input?.placeholder || `Jogador ${i+1}`;
+  });
   localStorage.setItem(STORAGE_KEY, JSON.stringify({ names, scores, generated }));
 }
 
@@ -352,23 +355,37 @@ function buildPlayerGrid(savedNames) {
   for (let i = 0; i < 8; i++) {
     const wrap = document.createElement('div');
     wrap.className = 'player-input-wrap';
-    const val = savedNames ? savedNames[i] : `Jogador ${i+1}`;
+    const hasSavedName = savedNames && savedNames[i];
+    const val = hasSavedName ? savedNames[i] : `Jogador ${i+1}`;
     wrap.innerHTML = `
       <span class="player-label">Jogador ${i+1}</span>
-      <input class="player-input" id="p${i}" type="text" value="${val}" maxlength="18" oninput="saveToStorage()" />
+      <input class="player-input" id="p${i}" type="text" value="${val}" maxlength="18" oninput="saveToStorage()" onfocus="this.select();" />
     `;
     g.appendChild(wrap);
   }
 }
 
 function getNames() {
-  return Array.from({length:8}, (_,i) => document.getElementById('p'+i)?.value.trim() || `Jogador ${i+1}`);
+  return Array.from({length:8}, (_,i) => {
+    const input = document.getElementById('p'+i);
+    return input?.value.trim() || input?.placeholder || `Jogador ${i+1}`;
+  });
 }
 
 function generateTournament(savedScores) {
+  // Verificar se todos os jogadores têm nomes preenchidos (permite nomes padrão)
+  const names = getNames();
+  for (let i = 0; i < names.length; i++) {
+    const input = document.getElementById('p' + i);
+    if (!input.value.trim()) {
+      alert(`Por favor, preencha o nome do Jogador ${i+1}.`);
+      input.focus();
+      return;
+    }
+  }
+
   generated = true;
   if (!savedScores) scores = {};
-  const names = getNames();
   const sec = document.getElementById('rounds-section');
   sec.innerHTML = '';
 
@@ -574,6 +591,17 @@ function renderStandings() {
     card.appendChild(row);
   });
 
+  // Adicionar legenda dos critérios de desempate
+  const legend = document.createElement('div');
+  legend.style.cssText = 'padding:12px 16px 8px;font-size:11px;color:var(--text3);border-top:0.5px solid var(--border);line-height:1.4;';
+  legend.innerHTML = `
+    <strong>Critérios de desempate:</strong><br>
+    1° - Partidas vencidas<br>
+    2° - Confronto direto (soma de games)<br>
+    3° - O mais velho vence
+  `;
+  card.appendChild(legend);
+
   sec.innerHTML = '';
   sec.appendChild(card);
 }
@@ -622,11 +650,21 @@ function resetAll() {
 })();
 </script>
 <footer style="text-align:center;margin-top:3rem;padding-top:1.5rem;padding-bottom:1rem;border-top:0.5px solid rgba(0,0,0,0.10);">
-  <p style="font-size:12px;color:#999890;letter-spacing:0.04em;">Desenvolvido por <strong style="color:#5f5e5a;font-weight:600;">Murilo Biscaro</strong></p>
-  <a href="https://instagram.com/murilo.biscaro" target="_blank" style="display:inline-flex;align-items:center;gap:5px;margin-top:5px;font-size:12px;color:#999890;text-decoration:none;letter-spacing:0.03em;">
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.2" fill="currentColor" stroke="none"/></svg>
-    @murilo.biscaro
-  </a>
+  <link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@300;400;700&display=swap" rel="stylesheet">
+  <p style="font-size:13px;color:#888780;letter-spacing:0.03em;margin-bottom:10px;">desenvolvido por</p>
+  <div style="display:flex;align-items:center;justify-content:center;gap:15px;">
+    <div style="text-align:center;">
+      <div style="line-height:1.1;">
+        <span style="font-family:'Ubuntu',sans-serif;font-weight:300;font-size:20px;color:#3a3a38;letter-spacing:-0.3px;">murilo</span><span style="font-family:'Ubuntu',sans-serif;font-weight:700;font-size:20px;color:#1a1a18;letter-spacing:-0.3px;">biscaro</span>
+      </div>
+      <div style="font-family:'Ubuntu',sans-serif;font-weight:400;font-size:10px;color:#888780;letter-spacing:0.01em;margin-top:0.5px;">&lt;desenvolvedorFullStack/&gt;</div>
+    </div>
+    <div style="width:1px;height:30px;background-color:#999890;"></div>
+    <a href="https://instagram.com/murilo.biscaro" target="_blank" style="font-family:'Ubuntu',sans-serif;display:flex;align-items:center;justify-content:center;gap:6px;font-size:12px;color:#999890;text-decoration:none;letter-spacing:0.03em;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.2" fill="currentColor" stroke="none"/></svg>
+      @murilo.biscaro
+    </a>
+  </div>
 </footer>
 </body>
 </html>
