@@ -626,6 +626,41 @@ function renderStandings() {
     return 0;
   });
 
+  const criteriaMessages = new Array(players.length).fill(null);
+  const ageSelectionRows = new Set();
+
+  for (let pos = 1; pos < players.length; pos++) {
+    const curr = players[pos];
+    const prev = players[pos - 1];
+    if (curr.games !== prev.games) continue;
+    if (curr.wins !== prev.wins) {
+      criteriaMessages[pos - 1] = `1° critério: partidas vencidas — ${prev.name} venceu ${prev.wins}, ${curr.name} venceu ${curr.wins}`;
+      continue;
+    }
+
+    const direct = getDirectGames(curr.i, prev.i);
+    const winner = getDirectResult(curr.i, prev.i);
+    if (winner !== null && winner !== 'tie') {
+      const winnerName = winner === prev.i ? prev.name : curr.name;
+      const loserName = winner === prev.i ? curr.name : prev.name;
+      const winnerScore = winner === prev.i ? direct.totalB : direct.totalA;
+      const loserScore = winner === prev.i ? direct.totalA : direct.totalB;
+      const winnerRow = winner === prev.i ? pos - 1 : pos;
+      criteriaMessages[winnerRow] = `2° critério: confronto direto (soma de games) — ${winnerName} ${winnerScore} x ${loserScore} ${loserName}`;
+      continue;
+    }
+
+    if (winner === 'tie') {
+      const manualWinner = getAgeTiebreakWinner(curr.i, prev.i);
+      if (manualWinner) {
+        const winnerRow = manualWinner === prev.i ? pos - 1 : pos;
+        criteriaMessages[winnerRow] = '3° critério: idade, o competidor mais velho vence';
+      } else {
+        ageSelectionRows.add(pos);
+      }
+    }
+  }
+
   function getDirectGames(pA, pB) {
     let totalA = 0;
     let totalB = 0;
@@ -657,28 +692,7 @@ function renderStandings() {
   }
 
   function getCriteria(pos) {
-    if (pos === 0) return null;
-    const curr = players[pos];
-    const prev = players[pos - 1];
-    if (curr.games !== prev.games) return null;
-    if (curr.wins !== prev.wins) {
-      return `1° critério: partidas vencidas — ${prev.name} venceu ${prev.wins}, ${curr.name} venceu ${curr.wins}`;
-    }
-    const direct = getDirectGames(curr.i, prev.i);
-    const winner = getDirectResult(curr.i, prev.i);
-    if (winner !== null && winner !== 'tie') {
-      const winnerName = winner === curr.i ? curr.name : prev.name;
-      const loserName = winner === curr.i ? prev.name : curr.name;
-      const winnerScore = winner === curr.i ? direct.totalA : direct.totalB;
-      const loserScore = winner === curr.i ? direct.totalB : direct.totalA;
-      return `2° critério: confronto direto (soma de games) — ${winnerName} ${winnerScore} x ${loserScore} ${loserName}`;
-    }
-    if (winner === 'tie') {
-      const manualWinner = getAgeTiebreakWinner(curr.i, prev.i);
-      if (manualWinner) return '3° critério: idade, o competidor mais velho vence';
-      return '3° critério: idade, selecione o vencedor abaixo';
-    }
-    return null;
+    return criteriaMessages[pos];
   }
 
   const sec = document.getElementById('standings-section');
@@ -698,17 +712,14 @@ function renderStandings() {
     const isChamp = pos === 0;
 
     let actionButtons = '';
-    if (criteria === '3° critério: idade, selecione o vencedor abaixo') {
+    if (ageSelectionRows.has(pos)) {
       const prev = players[pos - 1];
-      const manualWinner = getAgeTiebreakWinner(p.i, prev.i);
-      if (!manualWinner) {
-        actionButtons = `
-          <div class="age-tiebreak-actions">
-            <button class="tie-btn" onclick="selectAgeTiebreak(${p.i}, ${prev.i}, ${p.i})"><span>🏆 VENCE!</span><strong>${p.name}</strong></button>
-            <button class="tie-btn" onclick="selectAgeTiebreak(${p.i}, ${prev.i}, ${prev.i})"><span>🏆 VENCE!</span><strong>${prev.name}</strong></button>
-          </div>
-        `;
-      }
+      actionButtons = `
+        <div class="age-tiebreak-actions">
+          <button class="tie-btn" onclick="selectAgeTiebreak(${p.i}, ${prev.i}, ${p.i})"><span>🏆 VENCE!</span><strong>${p.name}</strong></button>
+          <button class="tie-btn" onclick="selectAgeTiebreak(${p.i}, ${prev.i}, ${prev.i})"><span>🏆 VENCE!</span><strong>${prev.name}</strong></button>
+        </div>
+      `;
     }
 
     row.innerHTML = `
