@@ -288,6 +288,19 @@
       gap: 8px;
       margin-top: 8px;
     }
+    .tiebreak-note {
+      margin-top: 8px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(29,158,117,0.08);
+      color: var(--text);
+      font-size: 12px;
+      line-height: 1.4;
+      border: 1px solid rgba(29,158,117,0.16);
+    }
+    .tiebreak-note strong {
+      font-weight: 700;
+    }
     .tie-btn {
       padding: 8px 12px;
       min-width: 100px;
@@ -715,6 +728,7 @@ function renderStandings() {
     if (ageSelectionRows.has(pos)) {
       const prev = players[pos - 1];
       actionButtons = `
+        <div class="tiebreak-note"><strong>Todos os critérios estão empatados.</strong> Nesse caso vence o jogador mais velho. Clique em um dos botões abaixo para definir o vencedor.</div>
         <div class="age-tiebreak-actions">
           <button class="tie-btn" onclick="selectAgeTiebreak(${p.i}, ${prev.i}, ${p.i})"><span>🏆 VENCE!</span><strong>${p.name}</strong></button>
           <button class="tie-btn" onclick="selectAgeTiebreak(${p.i}, ${prev.i}, ${prev.i})"><span>🏆 VENCE!</span><strong>${prev.name}</strong></button>
