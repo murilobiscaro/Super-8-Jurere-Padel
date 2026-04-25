@@ -282,6 +282,52 @@
     .games-val { font-family: var(--font-cond); font-size: 22px; font-weight: 700; color: var(--green); line-height: 1; }
     .games-lbl { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.04em; }
 
+    .age-tiebreak-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .tie-btn {
+      padding: 8px 12px;
+      min-width: 100px;
+      border: none;
+      border-radius: 14px;
+      background: var(--green);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
+      box-shadow: 0 6px 14px rgba(29,158,117,0.16);
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      line-height: 1.1;
+    }
+    .tie-btn span {
+      font-size: 10px;
+      opacity: 0.95;
+    }
+    .tie-btn strong {
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: none;
+    }
+    .tie-btn:hover {
+      background: #1f8b5f;
+      transform: translateY(-1px);
+      box-shadow: 0 8px 18px rgba(29,158,117,0.22);
+    }
+    .standing-row.age-winner {
+      background: rgba(29,158,117,0.12);
+      box-shadow: inset 0 0 0 1px rgba(29,158,117,0.16);
+    }
+
     .section-gap { margin-top: 1.5rem; }
   </style>
 </head>
@@ -332,6 +378,7 @@ const STORAGE_KEY = 'super8_padel_data';
 
 let scores = {};
 let generated = false;
+let manualAgeTiebreak = {}; // stores manual winner for age tiebreaks, keyed by sorted player ids
 
 function saveToStorage() {
   const names = Array.from({length:8}, (_,i) => {
@@ -473,6 +520,10 @@ function getPlayerGamesByRound() {
 }
 
 function getDirectResult(pA, pB) {
+  let totalA = 0;
+  let totalB = 0;
+  let found = false;
+
   for (let ri = 0; ri < ROUNDS.length; ri++) {
     for (let ci = 0; ci < ROUNDS[ri].length; ci++) {
       const match = ROUNDS[ri][ci];
@@ -486,13 +537,33 @@ function getDirectResult(pA, pB) {
         const na = s.a !== '' ? parseInt(s.a) : null;
         const nb = s.b !== '' ? parseInt(s.b) : null;
         if (na === null || nb === null || isNaN(na) || isNaN(nb)) continue;
-        // pA estava no lado A?
-        if (aInA && bInB) return na > nb ? pA : nb > na ? pB : 'tie';
-        if (aInB && bInA) return nb > na ? pA : na > nb ? pB : 'tie';
+        found = true;
+        if (aInA && bInB) {
+          totalA += na;
+          totalB += nb;
+        } else if (aInB && bInA) {
+          totalA += nb;
+          totalB += na;
+        }
       }
     }
   }
-  return null;
+
+  if (!found) return null;
+  if (totalA > totalB) return pA;
+  if (totalB > totalA) return pB;
+  return 'tie';
+}
+
+function selectAgeTiebreak(a, b, winner) {
+  const key = a < b ? `${a}-${b}` : `${b}-${a}`;
+  manualAgeTiebreak[key] = winner;
+  renderStandings();
+}
+
+function getAgeTiebreakWinner(a, b) {
+  const key = a < b ? `${a}-${b}` : `${b}-${a}`;
+  return manualAgeTiebreak[key] || null;
 }
 
 function renderGamesTable() {
@@ -547,18 +618,66 @@ function renderStandings() {
     const winner = getDirectResult(a.i, b.i);
     if (winner === a.i) return -1;
     if (winner === b.i) return 1;
+    if (winner === 'tie') {
+      const manualWinner = getAgeTiebreakWinner(a.i, b.i);
+      if (manualWinner === a.i) return -1;
+      if (manualWinner === b.i) return 1;
+    }
     return 0;
   });
+
+  function getDirectGames(pA, pB) {
+    let totalA = 0;
+    let totalB = 0;
+
+    for (let ri = 0; ri < ROUNDS.length; ri++) {
+      for (let ci = 0; ci < ROUNDS[ri].length; ci++) {
+        const match = ROUNDS[ri][ci];
+        const aInA = match.a.includes(pA), bInA = match.a.includes(pB);
+        const aInB = match.b.includes(pA), bInB = match.b.includes(pB);
+        if ((aInA && bInB) || (aInB && bInA)) {
+          const key = `${ri}-${ci}`;
+          const s = scores[key];
+          if (!s) continue;
+          const na = s.a !== '' ? parseInt(s.a) : null;
+          const nb = s.b !== '' ? parseInt(s.b) : null;
+          if (na === null || nb === null || isNaN(na) || isNaN(nb)) continue;
+          if (aInA && bInB) {
+            totalA += na;
+            totalB += nb;
+          } else if (aInB && bInA) {
+            totalA += nb;
+            totalB += na;
+          }
+        }
+      }
+    }
+
+    return { totalA, totalB };
+  }
 
   function getCriteria(pos) {
     if (pos === 0) return null;
     const curr = players[pos];
     const prev = players[pos - 1];
     if (curr.games !== prev.games) return null;
-    if (curr.wins !== prev.wins) return '1° critério: partidas vencidas';
+    if (curr.wins !== prev.wins) {
+      return `1° critério: partidas vencidas — ${prev.name} venceu ${prev.wins}, ${curr.name} venceu ${curr.wins}`;
+    }
+    const direct = getDirectGames(curr.i, prev.i);
     const winner = getDirectResult(curr.i, prev.i);
-    if (winner !== null && winner !== 'tie') return '2° critério: confronto direto (soma de games)';
-    if (winner === 'tie') return '3° critério: idade, o competidor mais velho vence';
+    if (winner !== null && winner !== 'tie') {
+      const winnerName = winner === curr.i ? curr.name : prev.name;
+      const loserName = winner === curr.i ? prev.name : curr.name;
+      const winnerScore = winner === curr.i ? direct.totalA : direct.totalB;
+      const loserScore = winner === curr.i ? direct.totalB : direct.totalA;
+      return `2° critério: confronto direto (soma de games) — ${winnerName} ${winnerScore} x ${loserScore} ${loserName}`;
+    }
+    if (winner === 'tie') {
+      const manualWinner = getAgeTiebreakWinner(curr.i, prev.i);
+      if (manualWinner) return '3° critério: idade, o competidor mais velho vence';
+      return '3° critério: idade, selecione o vencedor abaixo';
+    }
     return null;
   }
 
@@ -568,13 +687,29 @@ function renderStandings() {
   card.innerHTML = `<div class="card-header"><span>Classificação final</span><span style="font-size:11px;font-weight:400;color:var(--text3);">games ganhos</span></div>`;
 
   players.forEach((p, pos) => {
+    const prevPlayer = pos > 0 ? players[pos - 1] : null;
+    const isAgeWinner = prevPlayer ? getAgeTiebreakWinner(p.i, prevPlayer.i) === p.i : false;
     const row = document.createElement('div');
     const topClass = pos === 0 ? 'top1' : pos === 1 ? 'top2' : pos === 2 ? 'top3' : '';
-    row.className = 'standing-row ' + topClass;
+    row.className = 'standing-row ' + topClass + (isAgeWinner ? ' age-winner' : '');
     const posClass = pos === 0 ? 'gold' : pos === 1 ? 'silver' : pos === 2 ? 'bronze' : '';
     const medal = pos === 0 ? '1°' : pos === 1 ? '2°' : pos === 2 ? '3°' : `${pos+1}°`;
     const criteria = getCriteria(pos);
     const isChamp = pos === 0;
+
+    let actionButtons = '';
+    if (criteria === '3° critério: idade, selecione o vencedor abaixo') {
+      const prev = players[pos - 1];
+      const manualWinner = getAgeTiebreakWinner(p.i, prev.i);
+      if (!manualWinner) {
+        actionButtons = `
+          <div class="age-tiebreak-actions">
+            <button class="tie-btn" onclick="selectAgeTiebreak(${p.i}, ${prev.i}, ${p.i})"><span>🏆 VENCE!</span><strong>${p.name}</strong></button>
+            <button class="tie-btn" onclick="selectAgeTiebreak(${p.i}, ${prev.i}, ${prev.i})"><span>🏆 VENCE!</span><strong>${prev.name}</strong></button>
+          </div>
+        `;
+      }
+    }
 
     row.innerHTML = `
       <span class="pos ${posClass}">${medal}</span>
@@ -582,6 +717,7 @@ function renderStandings() {
         ${isChamp ? `<span style="font-size:10px;font-weight:700;letter-spacing:0.1em;color:#BA7517;text-transform:uppercase;margin-bottom:2px;display:block;">&#9733; Campeão</span>` : ''}
         <span class="standing-name" style="${isChamp ? 'font-size:16px;' : ''}">${p.name}</span>
         ${criteria ? `<span class="standing-criteria">${criteria}</span>` : ''}
+        ${actionButtons}
       </div>
       <div class="standing-right">
         <span class="games-val">${p.games}</span>
