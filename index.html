@@ -487,8 +487,8 @@ function getDirectResult(pA, pB) {
         const nb = s.b !== '' ? parseInt(s.b) : null;
         if (na === null || nb === null || isNaN(na) || isNaN(nb)) continue;
         // pA estava no lado A?
-        if (aInA && bInB) return na > nb ? pA : nb > na ? pB : null;
-        if (aInB && bInA) return nb > na ? pA : na > nb ? pB : null;
+        if (aInA && bInB) return na > nb ? pA : nb > na ? pB : 'tie';
+        if (aInB && bInA) return nb > na ? pA : na > nb ? pB : 'tie';
       }
     }
   }
@@ -558,7 +558,7 @@ function renderStandings() {
     if (curr.wins !== prev.wins) return '1° critério: partidas vencidas';
     const winner = getDirectResult(curr.i, prev.i);
     if (winner !== null && winner !== 'tie') return '2° critério: confronto direto (soma de games)';
-    if (winner === 'tie') return '3° critério: o mais velho vence';
+    if (winner === 'tie') return '3° critério: idade, o competidor mais velho vence';
     return null;
   }
 
@@ -598,7 +598,7 @@ function renderStandings() {
     <strong>Critérios de desempate:</strong><br>
     1° - Partidas vencidas<br>
     2° - Confronto direto (soma de games)<br>
-    3° - O mais velho vence
+    3° - Idade: o competidor mais velho vence
   `;
   card.appendChild(legend);
 
