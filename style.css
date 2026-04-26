@@ -624,6 +624,7 @@ body {
 }
 
 .footer-link svg {
+  margin-top: 5px;
   display: block;
 }
 
