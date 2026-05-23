@@ -10,14 +10,15 @@
 */
 
 const ROUNDS = [
-  [{a:[0,1], b:[2,3]}, {a:[4,5], b:[6,7]}],
-  [{a:[0,2], b:[4,6]}, {a:[1,3], b:[5,7]}],
-  [{a:[0,3], b:[5,6]}, {a:[1,2], b:[4,7]}],
-  [{a:[0,4], b:[3,6]}, {a:[1,5], b:[2,7]}],
-  [{a:[0,5], b:[2,6]}, {a:[1,4], b:[3,7]}],
-  [{a:[0,6], b:[1,7]}, {a:[2,5], b:[3,4]}],
-  [{a:[0,7], b:[2,4]}, {a:[1,6], b:[3,5]}]
+  [{a:[0,1], b:[2,3]}, {a:[4,5], b:[6,7]}], // R1: 0-1 vs 2-3 | 4-5 vs 6-7
+  [{a:[0,4], b:[5,1]}, {a:[2,6], b:[7,3]}], // R2: 0-4 vs 5-1 | 2-6 vs 7-3
+  [{a:[0,6], b:[7,1]}, {a:[2,4], b:[5,3]}], // R3: 0-6 vs 7-1 | 2-4 vs 5-3
+  [{a:[0,2], b:[4,6]}, {a:[1,3], b:[5,7]}], // R4: 0-2 vs 4-6 | 1-3 vs 5-7
+  [{a:[0,3], b:[5,6]}, {a:[1,2], b:[4,7]}], // R5: 0-3 vs 5-6 | 1-2 vs 4-7
+  [{a:[0,5], b:[2,7]}, {a:[1,4], b:[3,6]}], // R6: 0-5 vs 2-7 | 1-4 vs 3-6
+  [{a:[0,7], b:[3,4]}, {a:[1,6], b:[2,5]}]  // R7: 0-7 vs 3-4 | 1-6 vs 2-5
 ];
+
 const STORAGE_KEY = 'super8_padel_data';
 
 let scores = {};
@@ -226,10 +227,8 @@ function getPlayerGamesByRound() {
   return { gamesPerRound, wins };
 }
 
-function getDirectResult(playerA, playerB) {
-  let totalA = 0;
-  let totalB = 0;
-  let found = false;
+function getDirectMatchData(playerA, playerB) {
+  let stats = { totalA: 0, totalB: 0, found: false };
 
   for (let roundIndex = 0; roundIndex < ROUNDS.length; roundIndex++) {
     for (let courtIndex = 0; courtIndex < ROUNDS[roundIndex].length; courtIndex++) {
@@ -252,18 +251,23 @@ function getDirectResult(playerA, playerB) {
           continue;
         }
 
-        found = true;
+        stats.found = true;
         if (aHasA && bHasB) {
-          totalA += aValue;
-          totalB += bValue;
+          stats.totalA += aValue;
+          stats.totalB += bValue;
         } else {
-          totalA += bValue;
-          totalB += aValue;
+          stats.totalA += bValue;
+          stats.totalB += aValue;
         }
       }
     }
   }
+  return stats;
+}
 
+function getDirectResult(playerA, playerB) {
+  const { totalA, totalB, found } = getDirectMatchData(playerA, playerB);
+  
   if (!found) {
     return null;
   }
@@ -395,7 +399,7 @@ function renderStandings() {
     if (directResult !== null && directResult !== 'tie') {
       const winnerName = directResult === previousPlayer.index ? previousPlayer.name : currentPlayer.name;
       const loserName = directResult === previousPlayer.index ? currentPlayer.name : previousPlayer.name;
-      const directGames = getDirectGames(currentPlayer.index, previousPlayer.index);
+      const directGames = getDirectMatchData(currentPlayer.index, previousPlayer.index);
       const winnerScore = directResult === previousPlayer.index ? directGames.totalB : directGames.totalA;
       const loserScore = directResult === previousPlayer.index ? directGames.totalA : directGames.totalB;
       const winnerRow = directResult === previousPlayer.index ? position - 1 : position;
@@ -484,45 +488,6 @@ function renderStandings() {
   });
 }
 
-function getDirectGames(playerA, playerB) {
-  let totalA = 0;
-  let totalB = 0;
-
-  for (let roundIndex = 0; roundIndex < ROUNDS.length; roundIndex++) {
-    for (let courtIndex = 0; courtIndex < ROUNDS[roundIndex].length; courtIndex++) {
-      const match = ROUNDS[roundIndex][courtIndex];
-      const aHasA = match.a.includes(playerA);
-      const aHasB = match.a.includes(playerB);
-      const bHasA = match.b.includes(playerA);
-      const bHasB = match.b.includes(playerB);
-
-      if ((aHasA && bHasB) || (aHasB && bHasA)) {
-        const key = `${roundIndex}-${courtIndex}`;
-        const score = scores[key];
-        if (!score) {
-          continue;
-        }
-
-        const aValue = score.a !== '' ? parseInt(score.a, 10) : null;
-        const bValue = score.b !== '' ? parseInt(score.b, 10) : null;
-        if (aValue === null || bValue === null || Number.isNaN(aValue) || Number.isNaN(bValue)) {
-          continue;
-        }
-
-        if (aHasA && bHasB) {
-          totalA += aValue;
-          totalB += bValue;
-        } else {
-          totalA += bValue;
-          totalB += aValue;
-        }
-      }
-    }
-  }
-
-  return { totalA, totalB };
-}
-
 function exportPDF() {
   window.print();
 }
@@ -574,14 +539,6 @@ function init() {
     generated = savedState.generated || false;
 
     if (generated) {
-      ROUNDS.forEach((courts, roundIndex) => {
-        courts.forEach((match, courtIndex) => {
-          const key = `${roundIndex}-${courtIndex}`;
-          if (scores[key]) {
-            scores[key].match = match;
-          }
-        });
-      });
       generateTournament(true);
       return;
     }
