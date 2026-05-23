@@ -2,6 +2,8 @@
 
 Aplicação web para gerenciar torneios no formato **Super 8** de padel — 8 jogadores, 7 rodadas, todos jogam com todos.
 
+link de acesso: https://murilobiscaro.github.io/Super-8-Jurere-Padel/
+
 ---
 
 ## Sobre o projeto
