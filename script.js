@@ -5,7 +5,7 @@
   - digitação de nomes de jogadores
   - geração automática de rodadas e quadras
   - registro de placares por partida
-  - cálculo de games ganhos e ranking final
+  - cálculo de saldo de games e ranking final
   - persistência dos dados no localStorage
 */
 
@@ -151,14 +151,10 @@ function generateTournament(savedScores = false) {
           <span class="player-name">${names[match.a[0]]}</span>
           <span class="player-name">${names[match.a[1]]}</span>
         </div>
-        <div class="vs-block">
-          <span class="court-badge">Quadra ${courtIndex + 1}</span>
-          <span class="vs-text">vs</span>
-          <div class="score-inputs">
-            <input class="score-input" type="number" min="0" max="99" placeholder="–" id="s${key}a" value="${scoreA}" />
-            <span class="score-sep">×</span>
-            <input class="score-input" type="number" min="0" max="99" placeholder="–" id="s${key}b" value="${scoreB}" />
-          </div>
+        <div class="score-inputs">
+          <input class="score-input" type="number" min="0" max="99" placeholder="–" id="s${key}a" value="${scoreA}" />
+          <span class="score-sep">×</span>
+          <input class="score-input" type="number" min="0" max="99" placeholder="–" id="s${key}b" value="${scoreB}" />
         </div>
         <div class="team right">
           <span class="player-name">${names[match.b[0]]}</span>
@@ -170,12 +166,27 @@ function generateTournament(savedScores = false) {
       const inputB = row.querySelector(`#s${key}b`);
       inputA.addEventListener('input', () => updateScore(key, 'a', inputA.value));
       inputB.addEventListener('input', () => updateScore(key, 'b', inputB.value));
+      updateScoreInputColors(key, row);
 
       card.appendChild(row);
     });
 
     container.appendChild(card);
   });
+
+  const criteriaCard = document.createElement('div');
+  criteriaCard.className = 'card criteria-card';
+  criteriaCard.innerHTML = `
+    <div class="card-header">Critérios de desempate</div>
+    <div class="criteria-list">
+      <div>1° - Partidas vencidas</div>
+      <div>2° - Confronto direto (soma de games)</div>
+      <div>3° - Saldo de games (games ganhos menos games perdidos)</div>
+      <div>4° - Games ganhos totais</div>
+      <div>5° - Idade: o competidor mais velho vence</div>
+    </div>
+  `;
+  container.appendChild(criteriaCard);
 
   roundsSection.appendChild(container);
   renderGamesTable();
@@ -186,13 +197,36 @@ function generateTournament(savedScores = false) {
 
 function updateScore(key, side, value) {
   scores[key][side] = value === '' ? '' : Math.max(0, parseInt(value, 10) || 0);
+  updateScoreInputColors(key);
   renderGamesTable();
   renderStandings();
   saveToStorage();
 }
 
+function updateScoreInputColors(key, root = document) {
+  const inputA = root.querySelector(`#s${key}a`);
+  const inputB = root.querySelector(`#s${key}b`);
+  if (!inputA || !inputB) {
+    return;
+  }
+
+  inputA.classList.remove('score-winner', 'score-loser');
+  inputB.classList.remove('score-winner', 'score-loser');
+
+  const scoreA = scores[key]?.a !== '' ? Number(scores[key].a) : null;
+  const scoreB = scores[key]?.b !== '' ? Number(scores[key].b) : null;
+  if (scoreA === null || scoreB === null || !Number.isFinite(scoreA) || !Number.isFinite(scoreB) || scoreA === scoreB) {
+    return;
+  }
+
+  inputA.classList.add(scoreA > scoreB ? 'score-winner' : 'score-loser');
+  inputB.classList.add(scoreB > scoreA ? 'score-winner' : 'score-loser');
+}
+
 function getPlayerGamesByRound() {
-  const gamesPerRound = Array.from({ length: 8 }, () => Array(7).fill(null));
+  const saldoPerRound = Array.from({ length: 8 }, () => Array(7).fill(null));
+  const gamesWon = new Array(8).fill(0);
+  const gamesLost = new Array(8).fill(0);
   const wins = new Array(8).fill(0);
 
   ROUNDS.forEach((courts, roundIndex) => {
@@ -210,10 +244,14 @@ function getPlayerGamesByRound() {
       }
 
       match.a.forEach((playerId) => {
-        gamesPerRound[playerId][roundIndex] = (gamesPerRound[playerId][roundIndex] || 0) + aValue;
+        saldoPerRound[playerId][roundIndex] = (saldoPerRound[playerId][roundIndex] || 0) + aValue - bValue;
+        gamesWon[playerId] += aValue;
+        gamesLost[playerId] += bValue;
       });
       match.b.forEach((playerId) => {
-        gamesPerRound[playerId][roundIndex] = (gamesPerRound[playerId][roundIndex] || 0) + bValue;
+        saldoPerRound[playerId][roundIndex] = (saldoPerRound[playerId][roundIndex] || 0) + bValue - aValue;
+        gamesWon[playerId] += bValue;
+        gamesLost[playerId] += aValue;
       });
 
       if (aValue > bValue) {
@@ -224,11 +262,11 @@ function getPlayerGamesByRound() {
     });
   });
 
-  return { gamesPerRound, wins };
+  return { saldoPerRound, gamesWon, gamesLost, wins };
 }
 
 function getDirectMatchData(playerA, playerB) {
-  let stats = { totalA: 0, totalB: 0, found: false };
+  let stats = { totalA: 0, totalB: 0, found: false, scheduled: 0, completed: 0 };
 
   for (let roundIndex = 0; roundIndex < ROUNDS.length; roundIndex++) {
     for (let courtIndex = 0; courtIndex < ROUNDS[roundIndex].length; courtIndex++) {
@@ -239,6 +277,7 @@ function getDirectMatchData(playerA, playerB) {
       const bHasB = match.b.includes(playerB);
 
       if ((aHasA && bHasB) || (aHasB && bHasA)) {
+        stats.scheduled++;
         const key = `${roundIndex}-${courtIndex}`;
         const score = scores[key];
         if (!score) {
@@ -252,6 +291,7 @@ function getDirectMatchData(playerA, playerB) {
         }
 
         stats.found = true;
+  stats.completed++;
         if (aHasA && bHasB) {
           stats.totalA += aValue;
           stats.totalB += bValue;
@@ -280,6 +320,31 @@ function getDirectResult(playerA, playerB) {
   return 'tie';
 }
 
+function getCollectiveDirectGames(players) {
+  if (players.length < 2) {
+    return null;
+  }
+
+  const gamesByPlayer = new Map(players.map((player) => [player.index, 0]));
+
+  for (let first = 0; first < players.length; first++) {
+    for (let second = first + 1; second < players.length; second++) {
+      const playerA = players[first];
+      const playerB = players[second];
+      const directGames = getDirectMatchData(playerA.index, playerB.index);
+
+      if (directGames.scheduled === 0 || directGames.completed !== directGames.scheduled) {
+        return null;
+      }
+
+      gamesByPlayer.set(playerA.index, gamesByPlayer.get(playerA.index) + directGames.totalA);
+      gamesByPlayer.set(playerB.index, gamesByPlayer.get(playerB.index) + directGames.totalB);
+    }
+  }
+
+  return gamesByPlayer;
+}
+
 function selectAgeTiebreak(playerA, playerB, winner) {
   const key = playerA < playerB ? `${playerA}-${playerB}` : `${playerB}-${playerA}`;
   manualAgeTiebreak[key] = winner;
@@ -293,17 +358,17 @@ function getAgeTiebreakWinner(playerA, playerB) {
 
 /*
   renderGamesTable
-  Exibe a tabela de games ganhos por rodada para cada jogador.
+  Exibe o saldo de games por rodada para cada jogador.
   A tabela é recalculada sempre que um placar muda.
 */
 function renderGamesTable() {
   const names = getNames();
-  const { gamesPerRound } = getPlayerGamesByRound();
+  const { saldoPerRound } = getPlayerGamesByRound();
   const section = document.getElementById('games-table-section');
 
   const card = document.createElement('div');
   card.className = 'card';
-  card.innerHTML = '<div class="card-header">Games ganhos por rodada</div>';
+  card.innerHTML = '<div class="card-header">Saldo de games por rodada</div>';
 
   const wrapper = document.createElement('div');
   wrapper.className = 'games-table-wrap';
@@ -314,15 +379,20 @@ function renderGamesTable() {
   }
   tableHtml += '<th>Total</th></tr></thead><tbody>';
 
-  for (let playerIndex = 0; playerIndex < 8; playerIndex++) {
-    const totalGames = gamesPerRound[playerIndex].reduce((current, value) => current + (value !== null ? value : 0), 0);
+  const rows = saldoPerRound.map((rounds, playerIndex) => ({
+    playerIndex,
+    rounds,
+    totalSaldo: rounds.reduce((current, value) => current + (value !== null ? value : 0), 0)
+  })).sort((playerA, playerB) => playerB.totalSaldo - playerA.totalSaldo || playerA.playerIndex - playerB.playerIndex);
+
+  rows.forEach(({ playerIndex, rounds, totalSaldo }) => {
     tableHtml += `<tr><td>${names[playerIndex]}</td>`;
     for (let roundIndex = 0; roundIndex < 7; roundIndex++) {
-      const value = gamesPerRound[playerIndex][roundIndex];
-      tableHtml += value !== null ? `<td>${value}</td>` : '<td class="no-game">–</td>';
+      const value = rounds[roundIndex];
+      tableHtml += value !== null ? `<td>${value > 0 ? '+' : ''}${value}</td>` : '<td class="no-game">–</td>';
     }
-    tableHtml += `<td class="total-cell">${totalGames}</td></tr>`;
-  }
+    tableHtml += `<td class="total-cell">${totalSaldo > 0 ? '+' : ''}${totalSaldo}</td></tr>`;
+  });
 
   tableHtml += '</tbody></table>';
   wrapper.innerHTML = tableHtml;
@@ -335,40 +405,82 @@ function renderGamesTable() {
 /*
   renderStandings
   Calcula a classificação final com base em:
-  1. total de games ganhos
-  2. partidas vencidas
-  3. confronto direto entre jogadores empatados
-  4. desempate por idade quando necessário
+  1. partidas vencidas
+  2. confronto direto entre jogadores empatados
+  3. saldo de games (games ganhos menos games perdidos)
+  4. games ganhos totais
+  5. desempate por idade quando necessário
 */
 function renderStandings() {
   const names = getNames();
-  const { gamesPerRound, wins } = getPlayerGamesByRound();
+  const { saldoPerRound, gamesWon, gamesLost, wins } = getPlayerGamesByRound();
 
-  const totals = gamesPerRound.map((rounds) => rounds.reduce((sum, value) => sum + (value !== null ? value : 0), 0));
+  const totals = saldoPerRound.map((rounds) => rounds.reduce((sum, value) => sum + (value !== null ? value : 0), 0));
 
-  const players = totals.map((games, index) => ({
+  const players = totals.map((saldo, index) => ({
     index,
     name: names[index],
-    games,
+    saldo,
+    gamesWon: gamesWon[index],
+    gamesLost: gamesLost[index],
     wins: wins[index]
   }));
 
-  players.sort((playerA, playerB) => {
-    if (playerB.games !== playerA.games) {
-      return playerB.games - playerA.games;
-    }
-    if (playerB.wins !== playerA.wins) {
-      return playerB.wins - playerA.wins;
+  const criteriaMessages = new Array(players.length).fill(null);
+  const directScores = new Map();
+  const directGamesByPlayer = new Map();
+  const ageSelectionRows = new Set();
+
+  const playersByWins = [...players].sort((playerA, playerB) => playerB.wins - playerA.wins);
+  const orderedPlayers = [];
+
+  for (let groupStart = 0; groupStart < playersByWins.length;) {
+    let groupEnd = groupStart + 1;
+    while (groupEnd < playersByWins.length && playersByWins[groupEnd].wins === playersByWins[groupStart].wins) {
+      groupEnd++;
     }
 
-    const winner = getDirectResult(playerA.index, playerB.index);
-    if (winner === playerA.index) {
-      return -1;
+    const tiedGroup = playersByWins.slice(groupStart, groupEnd);
+    const collectiveDirectGames = getCollectiveDirectGames(tiedGroup);
+
+    if (collectiveDirectGames) {
+      const groupScores = tiedGroup.map((player) => collectiveDirectGames.get(player.index));
+      const allDirectScoresTied = groupScores.every((score) => score === groupScores[0]);
+
+      tiedGroup.forEach((player) => {
+        const playerDirectGames = collectiveDirectGames.get(player.index);
+        directGamesByPlayer.set(player.index, playerDirectGames);
+
+        if (tiedGroup.length === 2) {
+          const opponent = tiedGroup.find((candidate) => candidate.index !== player.index);
+          const pairGames = getDirectMatchData(player.index, opponent.index);
+          directScores.set(player.index, {
+            score: allDirectScoresTied ? 'Empate' : `${pairGames.totalA} x ${pairGames.totalB}`,
+            opponent: opponent.name
+          });
+        } else {
+          directScores.set(player.index, {
+            score: allDirectScoresTied ? 'Empate' : `${playerDirectGames} games`,
+            opponent: 'grupo'
+          });
+        }
+      });
     }
-    if (winner === playerB.index) {
-      return 1;
-    }
-    if (winner === 'tie') {
+
+    tiedGroup.sort((playerA, playerB) => {
+      if (collectiveDirectGames) {
+        const directDifference = collectiveDirectGames.get(playerB.index) - collectiveDirectGames.get(playerA.index);
+        if (directDifference !== 0) {
+          return directDifference;
+        }
+      }
+      if (playerB.saldo !== playerA.saldo) {
+        return playerB.saldo - playerA.saldo;
+      }
+      if (playerB.gamesWon !== playerA.gamesWon) {
+        return playerB.gamesWon - playerA.gamesWon;
+      }
+
       const manualWinner = getAgeTiebreakWinner(playerA.index, playerB.index);
       if (manualWinner === playerA.index) {
         return -1;
@@ -376,42 +488,41 @@ function renderStandings() {
       if (manualWinner === playerB.index) {
         return 1;
       }
-    }
-    return 0;
-  });
+      return 0;
+    });
 
-  const criteriaMessages = new Array(players.length).fill(null);
-  const ageSelectionRows = new Set();
+    orderedPlayers.push(...tiedGroup);
+    groupStart = groupEnd;
+  }
+
+  players.splice(0, players.length, ...orderedPlayers);
 
   for (let position = 1; position < players.length; position++) {
     const currentPlayer = players[position];
     const previousPlayer = players[position - 1];
 
-    if (currentPlayer.games !== previousPlayer.games) {
-      continue;
-    }
     if (currentPlayer.wins !== previousPlayer.wins) {
-      criteriaMessages[position - 1] = `1° critério: partidas vencidas — ${previousPlayer.name} venceu ${previousPlayer.wins}, ${currentPlayer.name} venceu ${currentPlayer.wins}`;
       continue;
     }
 
-    const directResult = getDirectResult(currentPlayer.index, previousPlayer.index);
-    if (directResult !== null && directResult !== 'tie') {
-      const winnerName = directResult === previousPlayer.index ? previousPlayer.name : currentPlayer.name;
-      const loserName = directResult === previousPlayer.index ? currentPlayer.name : previousPlayer.name;
-      const directGames = getDirectMatchData(currentPlayer.index, previousPlayer.index);
-      const winnerScore = directResult === previousPlayer.index ? directGames.totalB : directGames.totalA;
-      const loserScore = directResult === previousPlayer.index ? directGames.totalA : directGames.totalB;
-      const winnerRow = directResult === previousPlayer.index ? position - 1 : position;
-      criteriaMessages[winnerRow] = `2° critério: confronto direto (soma de games) — ${winnerName} ${winnerScore} x ${loserScore} ${loserName}`;
+    const previousDirectGames = directGamesByPlayer.get(previousPlayer.index);
+    const currentDirectGames = directGamesByPlayer.get(currentPlayer.index);
+    if (previousDirectGames !== undefined && currentDirectGames !== undefined && previousDirectGames !== currentDirectGames) {
       continue;
     }
 
-    if (directResult === 'tie') {
+    if (currentPlayer.saldo !== previousPlayer.saldo) {
+      continue;
+    }
+    if (currentPlayer.gamesWon !== previousPlayer.gamesWon) {
+      continue;
+    }
+
+    if (previousDirectGames !== undefined && currentDirectGames !== undefined) {
       const manualWinner = getAgeTiebreakWinner(currentPlayer.index, previousPlayer.index);
       if (manualWinner) {
         const winnerRow = manualWinner === previousPlayer.index ? position - 1 : position;
-        criteriaMessages[winnerRow] = '3° critério: idade, o competidor mais velho vence';
+        criteriaMessages[winnerRow] = '5° critério: idade, o competidor mais velho vence';
       } else {
         ageSelectionRows.add(position);
       }
@@ -421,7 +532,7 @@ function renderStandings() {
   const standingsSection = document.getElementById('standings-section');
   const card = document.createElement('div');
   card.className = 'standings-card';
-  card.innerHTML = '<div class="card-header"><span>Classificação final</span><span style="font-size:11px;font-weight:400;color:var(--text3);">games ganhos</span></div>';
+  card.innerHTML = '<div class="card-header"><span>Classificação final</span></div>';
 
   players.forEach((player, position) => {
     const previousPlayer = position > 0 ? players[position - 1] : null;
@@ -435,6 +546,15 @@ function renderStandings() {
     const medal = position === 0 ? '1°' : position === 1 ? '2°' : position === 2 ? '3°' : `${position + 1}°`;
     const criteria = criteriaMessages[position];
     const isChampion = position === 0;
+    const isRelegated = position === players.length - 1;
+    const directScore = directScores.get(player.index);
+    const placementBadge = position === 0
+      ? '<span class="placement-badge champion-badge">Campeão</span>'
+      : position === 1
+        ? '<span class="placement-badge second-badge">2º colocado</span>'
+        : position === 2
+          ? '<span class="placement-badge third-badge">3º colocado</span>'
+          : '';
 
     let actionButtons = '';
     if (ageSelectionRows.has(position)) {
@@ -451,29 +571,44 @@ function renderStandings() {
     row.innerHTML = `
       <span class="pos ${posClass}">${medal}</span>
       <div class="standing-info">
-        ${isChampion ? '<span style="font-size:10px;font-weight:700;letter-spacing:0.1em;color:#BA7517;text-transform:uppercase;margin-bottom:2px;display:block;">★ Campeão</span>' : ''}
-        <span class="standing-name" style="${isChampion ? 'font-size:16px;' : ''}">${player.name}</span>
+        <div class="standing-name-line">
+          <span class="standing-name" style="${isChampion ? 'font-size:16px;' : ''}">${player.name}</span>
+          ${placementBadge}
+          ${isRelegated ? '<span class="relegated-badge">Rebaixado</span>' : ''}
+        </div>
         ${criteria ? `<span class="standing-criteria">${criteria}</span>` : ''}
         ${actionButtons}
       </div>
-      <div class="standing-right">
-        <span class="games-val">${player.games}</span>
-        <span class="games-lbl">games</span>
+      <div class="standing-metrics has-direct-criterion">
+        <div class="standing-metric primary-metric">
+          <span class="games-lbl">partidas<br>vencidas</span>
+          <span class="games-val">${player.wins}</span>
+        </div>
+        <div class="standing-metric direct-criterion-metric">
+          <span class="games-lbl">confronto direto</span>
+          <div class="direct-result-line">
+            ${directScore
+              ? `<span class="direct-player">${player.name}</span><span class="direct-score">${directScore.score}</span><span class="direct-player">${directScore.opponent}</span>`
+              : '<span class="direct-status">Não usado</span>'}
+          </div>
+        </div>
+        <div class="standing-metric primary-metric">
+          <span class="games-lbl">saldo</span>
+          <span class="games-val">${player.saldo > 0 ? '+' : ''}${player.saldo}</span>
+        </div>
+        <div class="standing-metric">
+          <span class="games-lbl">games<br>ganhos</span>
+          <span class="games-val">${player.gamesWon}</span>
+        </div>
+        <div class="standing-metric">
+          <span class="games-lbl">games<br>perdidos</span>
+          <span class="games-val">${player.gamesLost}</span>
+        </div>
       </div>
     `;
 
     card.appendChild(row);
   });
-
-  const legend = document.createElement('div');
-  legend.style.cssText = 'padding:12px 16px 8px;font-size:11px;color:var(--text3);border-top:0.5px solid var(--border);line-height:1.4;';
-  legend.innerHTML = `
-    <strong>Critérios de desempate:</strong><br>
-    1° - Partidas vencidas<br>
-    2° - Confronto direto (soma de games)<br>
-    3° - Idade: o competidor mais velho vence
-  `;
-  card.appendChild(legend);
 
   standingsSection.innerHTML = '';
   standingsSection.appendChild(card);
