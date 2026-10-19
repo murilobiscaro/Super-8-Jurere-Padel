@@ -4,7 +4,8 @@
   - 8 jogadores, 7 rodadas e 2 quadras por rodada
   - Placares inteiros de 0 a 99, sem empate
   - Classificação por games ganhos, saldo, vitórias,
-    confronto direto e desempate manual por idade
+    confronto direto e idade
+  - Desempate por idade somente após preencher os 14 placares
   - Salvamento automático no localStorage
 */
 
@@ -116,8 +117,10 @@ function validatePlayerNames() {
 }
 
 /*
-  Retorna um placar somente se for um inteiro entre 0 e 99.
-  Placares iguais são considerados inválidos.
+  Um placar é válido quando:
+  - os dois campos estão preenchidos;
+  - ambos são inteiros de 0 a 99;
+  - os valores são diferentes.
 */
 function getValidScorePair(score) {
   if (!score || score.a === '' || score.b === '') return null;
@@ -136,6 +139,20 @@ function getValidScorePair(score) {
   }
 
   return { a, b };
+}
+
+/*
+  NOVA VERIFICAÇÃO:
+  O desempate por idade só fica liberado quando todas as
+  14 partidas têm placares completos e válidos.
+*/
+function allScoresComplete() {
+  return ROUNDS.every((courts, roundIndex) =>
+    courts.every((match, courtIndex) => {
+      const key = `${roundIndex}-${courtIndex}`;
+      return getValidScorePair(scores[key]) !== null;
+    })
+  );
 }
 
 function normalizeScores(savedScores) {
@@ -189,13 +206,15 @@ function generateTournament(keepSavedScores = false) {
       const row = document.createElement('div');
       row.className = 'court-row';
 
+      const names = getNames();
+
       const teamA = document.createElement('div');
       teamA.className = 'team';
 
       match.a.forEach(playerId => {
         const name = document.createElement('span');
         name.className = 'player-name';
-        name.textContent = getNames()[playerId];
+        name.textContent = names[playerId];
         teamA.appendChild(name);
       });
 
@@ -216,12 +235,13 @@ function generateTournament(keepSavedScores = false) {
       match.b.forEach(playerId => {
         const name = document.createElement('span');
         name.className = 'player-name';
-        name.textContent = getNames()[playerId];
+        name.textContent = names[playerId];
         teamB.appendChild(name);
       });
 
       row.append(teamA, scoreInputs, teamB);
       card.appendChild(row);
+
       updateScoreInputColors(key, row);
     });
 
@@ -297,8 +317,7 @@ function updateScoreInputColors(key, root = document) {
   if (!validPair) {
     inputA.classList.add('score-invalid');
     inputB.classList.add('score-invalid');
-
-    inputA.title = 'Placar inválido: use inteiros de 0 a 99 e não repita os valores.';
+    inputA.title = 'Use inteiros de 0 a 99. Os placares não podem ser iguais.';
     inputB.title = inputA.title;
     return;
   }
@@ -317,9 +336,9 @@ function renderRoundsNames() {
 
   ROUNDS.forEach((courts, roundIndex) => {
     courts.forEach((match, courtIndex) => {
-      const row = document.querySelector(
-        `#rounds-section .rounds-container .card:nth-child(${roundIndex + 1}) .court-row:nth-child(${courtIndex + 2})`
-      );
+      const key = `${roundIndex}-${courtIndex}`;
+      const inputA = document.getElementById(`s${key}a`);
+      const row = inputA?.closest('.court-row');
 
       if (!row) return;
 
@@ -344,7 +363,7 @@ function getPlayerGamesByRound() {
       const key = `${roundIndex}-${courtIndex}`;
       const score = getValidScorePair(scores[key]);
 
-      // Não contabiliza placares incompletos, iguais ou inválidos.
+      // Partidas incompletas ou com placares inválidos não contam.
       if (!score) return;
 
       match.a.forEach(playerId => {
@@ -353,7 +372,6 @@ function getPlayerGamesByRound() {
 
         gamesWon[playerId] += score.a;
         gamesLost[playerId] += score.b;
-        wins[playerId]++;
       });
 
       match.b.forEach(playerId => {
@@ -364,10 +382,9 @@ function getPlayerGamesByRound() {
         gamesLost[playerId] += score.a;
       });
 
-      // A vitória é atribuída somente à dupla com mais games.
-      // Os jogadores da dupla B vencem quando B faz mais games.
-      if (score.b > score.a) {
-        match.a.forEach(playerId => wins[playerId]--);
+      if (score.a > score.b) {
+        match.a.forEach(playerId => wins[playerId]++);
+      } else {
         match.b.forEach(playerId => wins[playerId]++);
       }
     });
@@ -526,6 +543,8 @@ function renderStandings() {
   const names = getNames();
   const { saldoPerRound, gamesWon, gamesLost, wins } = getPlayerGamesByRound();
 
+  const completeTournament = allScoresComplete();
+
   const totals = saldoPerRound.map(rounds =>
     rounds.reduce((sum, value) => sum + (value !== null ? value : 0), 0)
   );
@@ -550,8 +569,6 @@ function renderStandings() {
     a.index - b.index
   );
 
-  // Aplica o confronto direto apenas dentro de grupos empatados
-  // nos três primeiros critérios.
   for (let start = 0; start < players.length;) {
     let end = start + 1;
 
@@ -583,12 +600,9 @@ function renderStandings() {
         const direct = getDirectMatchData(first.index, second.index);
 
         if (direct.totalA !== direct.totalB) {
-          const firstScore = direct.totalA;
-          const secondScore = direct.totalB;
-
           directCriteriaByPlayer.set(
             first.index,
-            `4° critério: confronto direto — ${first.name} ${firstScore} x ${secondScore} ${second.name}`
+            `4° critério: confronto direto — ${first.name} ${direct.totalA} x ${direct.totalB} ${second.name}`
           );
         }
       }
@@ -598,62 +612,66 @@ function renderStandings() {
     start = end;
   }
 
-  // Solicita decisão manual por idade quando os critérios anteriores
-  // não separam jogadores adjacentes na classificação.
-  for (let position = 1; position < players.length; position++) {
-    const previous = players[position - 1];
-    const current = players[position];
+  /*
+    IMPORTANTE:
+    Só libera mensagens e botões de desempate por idade quando
+    todas as 14 partidas possuem placares válidos.
+  */
+  if (completeTournament) {
+    for (let position = 1; position < players.length; position++) {
+      const previous = players[position - 1];
+      const current = players[position];
 
-    const tiedOnFirstThree =
-      current.gamesWon === previous.gamesWon &&
-      current.saldo === previous.saldo &&
-      current.wins === previous.wins;
+      const tiedOnFirstThree =
+        current.gamesWon === previous.gamesWon &&
+        current.saldo === previous.saldo &&
+        current.wins === previous.wins;
 
-    if (!tiedOnFirstThree) continue;
+      if (!tiedOnFirstThree) continue;
 
-    const previousDirect = directGamesByPlayer.get(previous.index);
-    const currentDirect = directGamesByPlayer.get(current.index);
+      const previousDirect = directGamesByPlayer.get(previous.index);
+      const currentDirect = directGamesByPlayer.get(current.index);
 
-    const tiedOnDirect =
-      previousDirect === undefined ||
-      currentDirect === undefined ||
-      previousDirect === currentDirect;
+      const tiedOnDirect =
+        previousDirect === undefined ||
+        currentDirect === undefined ||
+        previousDirect === currentDirect;
 
-    if (!tiedOnDirect) continue;
+      if (!tiedOnDirect) continue;
 
-    const winner = getAgeTiebreakWinner(previous.index, current.index);
+      const winner = getAgeTiebreakWinner(previous.index, current.index);
 
-    if (!winner) {
-      ageSelectionRows.add(position);
+      if (!winner) {
+        ageSelectionRows.add(position);
+      }
     }
-  }
 
-  // Aplica as escolhas manuais por idade às posições empatadas.
-  // A ordem final continua respeitando os três primeiros critérios.
-  for (let position = 1; position < players.length; position++) {
-    const previous = players[position - 1];
-    const current = players[position];
+    // Aplica escolhas por idade somente com o torneio completo.
+    for (let position = 1; position < players.length; position++) {
+      const previous = players[position - 1];
+      const current = players[position];
 
-    if (
-      current.gamesWon !== previous.gamesWon ||
-      current.saldo !== previous.saldo ||
-      current.wins !== previous.wins
-    ) continue;
+      if (
+        current.gamesWon !== previous.gamesWon ||
+        current.saldo !== previous.saldo ||
+        current.wins !== previous.wins
+      ) continue;
 
-    const previousDirect = directGamesByPlayer.get(previous.index);
-    const currentDirect = directGamesByPlayer.get(current.index);
+      const previousDirect = directGamesByPlayer.get(previous.index);
+      const currentDirect = directGamesByPlayer.get(current.index);
 
-    if (
-      previousDirect !== undefined &&
-      currentDirect !== undefined &&
-      previousDirect !== currentDirect
-    ) continue;
+      if (
+        previousDirect !== undefined &&
+        currentDirect !== undefined &&
+        previousDirect !== currentDirect
+      ) continue;
 
-    const winner = getAgeTiebreakWinner(previous.index, current.index);
+      const winner = getAgeTiebreakWinner(previous.index, current.index);
 
-    if (winner === current.index) {
-      players[position - 1] = current;
-      players[position] = previous;
+      if (winner === current.index) {
+        players[position - 1] = current;
+        players[position] = previous;
+      }
     }
   }
 
@@ -668,7 +686,9 @@ function renderStandings() {
 
   players.forEach((player, position) => {
     const previous = position > 0 ? players[position - 1] : null;
-    const isAgeWinner = previous &&
+
+    const isAgeWinner = completeTournament &&
+      previous &&
       getAgeTiebreakWinner(player.index, previous.index) === player.index;
 
     const row = document.createElement('div');
@@ -698,7 +718,7 @@ function renderStandings() {
 
     let actionButtons = '';
 
-    if (ageSelectionRows.has(position) && previous) {
+    if (completeTournament && ageSelectionRows.has(position) && previous) {
       actionButtons = `
         <div class="tiebreak-note">
           <strong>Critérios empatados.</strong>
@@ -753,6 +773,15 @@ function renderStandings() {
 
     card.appendChild(row);
   });
+
+  // Informa o motivo de o desempate por idade ainda não aparecer.
+  if (!completeTournament) {
+    const notice = document.createElement('div');
+    notice.className = 'tiebreak-note';
+    notice.textContent =
+      'O desempate por idade será disponibilizado após o preenchimento válido dos placares das 14 partidas.';
+    card.appendChild(notice);
+  }
 
   standingsSection.innerHTML = '';
   standingsSection.appendChild(card);
